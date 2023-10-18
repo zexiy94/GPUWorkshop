@@ -51,87 +51,87 @@ int check_equal_float_vec(float *vec1,float *vec2,int size)
 //////////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char **argv)
 {
-  cudaDeviceReset();
- int size = 1024*1024;
+    cudaDeviceReset();
+  int size = 1024*1024;
 
-//performance measure
-cpuClock cpuck;
-cudaClock ck;
-/////////////////////////////////// STREAM CREATION //////////////////////////////
-//std::cout << "Creating " << NSTREAMS << " streams" << std::endl;
-cudaStream_t *streams = (cudaStream_t *) malloc(NSTREAMS * sizeof(cudaStream_t));
-for(int is =0; is < NSTREAMS; is++){
- cudaStreamCreate(&(streams[is]));
- //if(cudaSuccess != cudaGetLastError()) printf("Error creating the %d stream", is);
-}
-//IMPORTANT WE CREATE ARRAYs of POINTERS, to help maintain each stream data separated!!!
-float *h_inputA, *h_inputB, *h_output_gpu, *h_output_cpu;
-float **d_inputA = (float**)malloc(NSTREAMS * sizeof(float*));
-float **d_inputB = (float**)malloc(NSTREAMS * sizeof(float*));
-float **d_output = (float**)malloc(NSTREAMS * sizeof(float*));
+  //performance measure
+  cpuClock cpuck;
+  cudaClock ck;
+  /////////////////////////////////// STREAM CREATION //////////////////////////////
+  //std::cout << "Creating " << NSTREAMS << " streams" << std::endl;
+  cudaStream_t *streams = (cudaStream_t *) malloc(NSTREAMS * sizeof(cudaStream_t));
+  for(int is =0; is < NSTREAMS; is++){
+    cudaStreamCreate(&(streams[is]));
+  //if(cudaSuccess != cudaGetLastError()) printf("Error creating the %d stream", is);
+  }
+  //IMPORTANT WE CREATE ARRAYs of POINTERS, to help maintain each stream data separated!!!
+  float *h_inputA, *h_inputB, *h_output_gpu, *h_output_cpu;
+  float **d_inputA = (float**)malloc(NSTREAMS * sizeof(float*));
+  float **d_inputB = (float**)malloc(NSTREAMS * sizeof(float*));
+  float **d_output = (float**)malloc(NSTREAMS * sizeof(float*));
 
-//printf("Allocating and creating problem data..\n");
+  //printf("Allocating and creating problem data..\n");
 
-//allocation of host memory
-//h_inputA     = (float*)malloc(NSTREAMS * size * sizeof(float));
-//h_inputB     = (float*)malloc(NSTREAMS * size * sizeof(float));
-//h_output_gpu = (float*)malloc(NSTREAMS * size * sizeof(float));
-h_output_cpu = (float*)malloc(NSTREAMS * size * sizeof(float));
-CudaSafeCall(cudaMallocHost((void**)&h_inputA, NSTREAMS * size * sizeof(float)));
-CudaSafeCall(cudaMallocHost((void**)&h_inputB, NSTREAMS * size * sizeof(float)));
-CudaSafeCall(cudaMallocHost((void**)&h_output_gpu, NSTREAMS * size * sizeof(float)));
+  //allocation of host memory
+  //h_inputA     = (float*)malloc(NSTREAMS * size * sizeof(float));
+  //h_inputB     = (float*)malloc(NSTREAMS * size * sizeof(float));
+  //h_output_gpu = (float*)malloc(NSTREAMS * size * sizeof(float));
+  h_output_cpu = (float*)malloc(NSTREAMS * size * sizeof(float));
+  CudaSafeCall(cudaMallocHost((void**)&h_inputA, NSTREAMS * size * sizeof(float)));
+  CudaSafeCall(cudaMallocHost((void**)&h_inputB, NSTREAMS * size * sizeof(float)));
+  CudaSafeCall(cudaMallocHost((void**)&h_output_gpu, NSTREAMS * size * sizeof(float)));
 
 
-for(int i =0; i < NSTREAMS * size; i++){
-	h_inputA[i] = (rand()%1000) * 1.0f;
-  h_inputB[i] = (rand()%1) * 1.0f;
-}
- ////
- //------ Step 1: Allocate the memory-------
-// std::cout << "Allocating Device Memory"<< std::endl;
- for(int is = 0 ; is < NSTREAMS; is++){ //we are going to see this type of loop a lot
-    CudaSafeCall(cudaMalloc((void**)&d_inputA[is],     size * sizeof(float)));
-    CudaSafeCall(cudaMalloc((void**)&d_inputB[is],     size * sizeof(float)));
-    CudaSafeCall(cudaMalloc((void**)&d_output[is],     size * sizeof(float)));
-}
-checkGPUMemory();
- //std::cout << "Please no more memory allocations beyond this point!!"<< std::endl;
- //------ Step 3..before 2?: Prepare launch parameters-------
- //printf("preparing launch parameters..\n");
- dim3 dimGrid = dim3((size + 127)/128, 1, 1);
- dim3 dimBlock = dim3(128, 1, 1);
+  for(int i =0; i < NSTREAMS * size; i++){
+    h_inputA[i] = (rand()%1000) * 1.0f;
+    h_inputB[i] = (rand()%1) * 1.0f;
+  }
+  ////
+  //------ Step 1: Allocate the memory-------
+  // std::cout << "Allocating Device Memory"<< std::endl;
+  for(int is = 0 ; is < NSTREAMS; is++){ //we are going to see this type of loop a lot
+      cudaMalloc((void**)&d_inputA[is],     size * sizeof(float));
+      cudaMalloc((void**)&d_inputB[is],     size * sizeof(float));
+      cudaMalloc((void**)&d_output[is],     size * sizeof(float));
+  }
+  checkGPUMemory();
+  //std::cout << "Please no more memory allocations beyond this point!!"<< std::endl;
+  //------ Step 3..before 2?: Prepare launch parameters-------
+  //printf("preparing launch parameters..\n");
+  dim3 dimGrid = dim3((size + 127)/128, 1, 1);
+  dim3 dimBlock = dim3(128, 1, 1);
 
-//std::cout << "Transfering data to the Device, Compute and Transfer back!" << std::endl;
-for(int is = 0 ; is < NSTREAMS; is++){
-  //------ Step 2: Copy Memory to the device-------
-  cudaMemcpyAsync(d_inputA[is], h_inputA + is*size, size * sizeof(float), cudaMemcpyHostToDevice, streams[is]);
-  cudaMemcpyAsync(d_inputB[is], h_inputB + is*size, size * sizeof(float), cudaMemcpyHostToDevice, streams[is]);
-  //------ Step 4: Compute kernels-------
-  any_kernel<<<dimGrid, dimBlock, 0,streams[is]>>>(d_output[is], d_inputA[is], d_inputB[is], size);
- //------ Step 5: Copy Memory back to the host-------
-  cudaMemcpyAsync(h_output_gpu + is*size, d_output[is], size * sizeof(float), cudaMemcpyDeviceToHost, streams[is]);
-}
-CudaCheckError();
-//soem CPU verification
-any_kernel_cpu(h_output_cpu, h_inputA, h_inputB, NSTREAMS * size);
-check_equal_float_vec(h_output_gpu, h_output_cpu, NSTREAMS * size);
+  //std::cout << "Transfering data to the Device, Compute and Transfer back!" << std::endl;
+  for(int is = 0 ; is < NSTREAMS; is++){
+    //------ Step 2: Copy Memory to the device-------
+    cudaMemcpyAsync(d_inputA[is], h_inputA + is*size, size * sizeof(float), cudaMemcpyHostToDevice, streams[is]);
+    cudaMemcpyAsync(d_inputB[is], h_inputB + is*size, size * sizeof(float), cudaMemcpyHostToDevice, streams[is]);
+    //------ Step 4: Compute kernels-------
+    any_kernel<<<dimGrid, dimBlock, 0,streams[is]>>>(d_output[is], d_inputA[is], d_inputB[is], size);
+    //------ Step 5: Copy Memory back to the host-------
+    cudaMemcpyAsync(h_output_gpu + is*size, d_output[is], size * sizeof(float), cudaMemcpyDeviceToHost, streams[is]);
+  }
+  CudaCheckError();
+  //soem CPU verification
+  any_kernel_cpu(h_output_cpu, h_inputA, h_inputB, NSTREAMS * size);
+  check_equal_float_vec(h_output_gpu, h_output_cpu, NSTREAMS * size);
 
-//-----------Step 6: Free the memory --------------
-//printf("Deallocating device memory\n");
-for(int is = 0 ; is < NSTREAMS; is++){ //we are going to see this type of loop a lot
-   CudaSafeCall(cudaFree(d_inputA[is]));
-   CudaSafeCall(cudaFree(d_inputB[is]));
-   CudaSafeCall(cudaFree(d_output[is]));
-}
-//important to free the arrays of pointers as well, small memory leaks can crash after few days of computation,
-free(d_inputA);
-free(d_inputB);
-free(d_output);
-cudaFreeHost(h_inputA);
-cudaFreeHost(h_inputB);
-cudaFreeHost(h_output_gpu);
-free(h_output_cpu);
+  //-----------Step 6: Free the memory --------------
+  //printf("Deallocating device memory\n");
+  for(int is = 0 ; is < NSTREAMS; is++){ //we are going to see this type of loop a lot
+    CudaSafeCall(cudaFree(d_inputA[is]));
+    CudaSafeCall(cudaFree(d_inputB[is]));
+    CudaSafeCall(cudaFree(d_output[is]));
+  }
+  //important to free the arrays of pointers as well, small memory leaks can crash after few days of computation,
+  free(d_inputA);
+  free(d_inputB);
+  free(d_output);
+  cudaFreeHost(h_inputA);
+  cudaFreeHost(h_inputB);
+  cudaFreeHost(h_output_gpu);
+  free(h_output_cpu);
 
-//return 42;
-return 0;
+  //return 42;
+  return 0;
 }
