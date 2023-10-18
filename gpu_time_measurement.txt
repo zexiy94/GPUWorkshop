@@ -1,0 +1,20 @@
+//gpu time measurement
+ cudaEvent_t gstart,gstop;
+ cudaEventCreate(&gstart);
+ cudaEventCreate(&gstop);
+ 
+ cudaEventRecord(gstart, 0);
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+////// kernel launches here!!!!
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ cudaEventRecord(gstop, 0);
+ cudaEventSynchronize(gstop);
+ 
+ float gpu_time; 
+ cudaEventElapsedTime(&gpu_time, gstart, gstop);
+ printf("GPU version has finished, it took %f ms\n",gpu_time );
+ 
+ cudaEventDestroy(gstart); //cleaning up a bit
+ cudaEventDestroy(gstop);
