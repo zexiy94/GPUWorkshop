@@ -11,17 +11,17 @@ __global__ void gpu_matrix_transpose_shared(float *mat_out,
                                            int nrows,
                                            int ncols)
 {
-  int col_id = blockIdx.x * blockDim.x + threadIdx.x;
-  int row_id = blockIdx.y * blockDim.y + threadIdx.y;
-  int col_out = blockIdx.y * blockDim.y + threadIdx.x;
-  int row_out = blockIdx.x * blockDim.x + threadIdx.y;
-  extern float sharedmem[];
-  //printf(" %d %d, ", gidx, 1);
-  if(col_id < ncols &&  row_id < nrows){
-      = mat_in[col_id + ncols * row_id]; //load the shared memory
-    //ADD SYNCHRONIZATION BARRIER
-    mat_out[col_out + ncols * row_out] = ;//write from shared memory
-  }
+    int col_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int row_id = blockIdx.y * blockDim.y + threadIdx.y;
+    int col_out = blockIdx.y * blockDim.y + threadIdx.x;
+    int row_out = blockIdx.x * blockDim.x + threadIdx.y;
+    extern float sharedmem[];
+    //printf(" %d %d, ", gidx, 1);
+    if(col_id < ncols &&  row_id < nrows){
+          = mat_in[col_id + ncols * row_id]; //load the shared memory
+        //ADD SYNCHRONIZATION BARRIER
+        mat_out[col_out + ncols * row_out] = ;//write from shared memory
+    }
 }
 
 __global__ void gpu_matrix_transpose_naive(float *mat_out,
