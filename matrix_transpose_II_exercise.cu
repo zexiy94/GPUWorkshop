@@ -15,7 +15,7 @@ __global__ void gpu_matrix_transpose_shared(float *mat_out,
     int row_id = blockIdx.y * blockDim.y + threadIdx.y;
     int col_out = blockIdx.y * blockDim.y + threadIdx.x;
     int row_out = blockIdx.x * blockDim.x + threadIdx.y;
-    extern float sharedmem[];
+    extern __shared__ float _shared_local[];
     //printf(" %d %d, ", gidx, 1);
     if(col_id < ncols &&  row_id < nrows){
           = mat_in[col_id + ncols * row_id]; //load the shared memory

@@ -10,17 +10,19 @@ __global__ void gpu_matrix_transpose_shared(float *mat_out,
                                            int nrows,
                                            int ncols)
 {
-  int col_id = blockIdx.x * blockDim.x + threadIdx.x;
-  int row_id = blockIdx.y * blockDim.y + threadIdx.y;
-  int col_out = blockIdx.y * blockDim.y + threadIdx.x;
-  int row_out = blockIdx.x * blockDim.x + threadIdx.y;
-  __shared__ float _shared_local[TILE_WIDTH][TILE_WIDTH];
-  //printf(" %d %d, ", gidx, 1);
-  if(col_id < ncols &&  row_id < nrows){
-     _shared_local[threadIdx.x][threadIdx.y] = mat_in[col_id + ncols * row_id];;
-    __syncthreads();//synchronization barrier
-    mat_out[col_out + ncols * row_out] = _shared_local[threadIdx.y][threadIdx.x];
-  }
+    int col_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int row_id = blockIdx.y * blockDim.y + threadIdx.y;
+    int col_out = blockIdx.y * blockDim.y + threadIdx.x;
+    int row_out = blockIdx.x * blockDim.x + threadIdx.y;
+    extern __shared__ float _shared_local[];
+    //printf(" %d %d, ", gidx, 1);
+    if(col_id < ncols &&  row_id < nrows){
+        _shared_local[threadIdx.x * blockDim.y + threadIdx.y] 
+                = mat_in[col_id + ncols * row_id];;
+        __syncthreads();//synchronization barrier
+        mat_out[col_out + ncols * row_out] 
+              =_shared_local[threadIdx.y * blockDim.x + threadIdx.x];
+    }
 }
 
 __global__ void gpu_matrix_transpose_naive(float *mat_out,
@@ -103,6 +105,7 @@ CudaSafeCall(cudaMemcpy(d_mat_in, h_mat_in, mat_size_bytes, cudaMemcpyHostToDevi
 printf("preparing launch parameters..\n");
 int block_size_x = 32;
 int block_size_y = 32;
+int MEMUSAGE = block_size_x*block_size_y*sizeof(float);
 dim3 dimGrid = dim3((ncols + block_size_x - 1)/ block_size_x, (nrows + block_size_y - 1)/block_size_y, 1);//.... CONFIGURE THE GRID IN 2D NOW!
 std::cout << "dimGrid = " << dimGrid.x << " x " << dimGrid.y << std::endl;
 dim3 dimBlock = dim3(block_size_x, block_size_y, 1);//.... we have  alimit of 1024 threads per block!!!!!
@@ -116,7 +119,7 @@ cudaTock(&ck, "gpu_matrix_transpose_naive");
 CudaCheckError();
 
 cudaTick(&ck2);
-gpu_matrix_transpose_shared<<<dimGrid, dimBlock>>>(d_mat_out, d_mat_in, nrows, ncols);
+gpu_matrix_transpose_shared<<<dimGrid, dimBlock, MEMUSAGE>>>(d_mat_out, d_mat_in, nrows, ncols);
 cudaTock(&ck2, "gpu_matrix_transpose_shared");
 CudaCheckError();
 std::cout << "new version is " << ck.elapsedMicroseconds/ck2.elapsedMicroseconds << " times faster that naive version" << std::endl;
