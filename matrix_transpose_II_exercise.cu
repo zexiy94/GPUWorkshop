@@ -18,7 +18,7 @@ __global__ void gpu_matrix_transpose_shared(float *mat_out,
   extern float sharedmem[];
   //printf(" %d %d, ", gidx, 1);
   if(col_id < ncols &&  row_id < nrows){
-      = mat_in[col_id + ncols * row_id];//load the shared memory
+      = mat_in[col_id + ncols * row_id]; //load the shared memory
     //ADD SYNCHRONIZATION BARRIER
     mat_out[col_out + ncols * row_out] = ;//write from shared memory
   }
