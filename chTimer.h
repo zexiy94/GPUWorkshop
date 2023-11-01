@@ -25,7 +25,7 @@ struct cpuClock{
 inline void
 chTimerGetTime( chTimerTimestamp *p )
 {
-   // clock_gettime(CLOCK_MONOTONIC, p);
+   clock_gettime(CLOCK_MONOTONIC, p);
 }
 
 inline double
