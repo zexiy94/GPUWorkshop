@@ -1,4 +1,4 @@
-// // nvcc -run matrixmul_solution_naive.cu cuda_helper.cu
+// // nvcc -run matrixmul_solution_streams.cu cuda_helper.cu
 #include "cuda_runtime.h"
 #include "chTimer.h"
 #include "cuda_helper.h"
@@ -10,14 +10,39 @@ __global__ void gpu_matrix_mul(float *result_mat,
                                float *mat_b,
                                int nrowsA, int nrowsB, int ncolsA, int ncolsB)
 {
-    int col_id = blockIdx.x * blockDim.x + threadIdx.x;
+      // Compute each thread's global row and column index
     int row_id = blockIdx.y * blockDim.y + threadIdx.y;
-    //printf(" %d %d, ", gidx, 1);
+    int col_id = blockIdx.x * blockDim.x + threadIdx.x;
+    extern __shared__ float shared_local[];
+    // Statically allocated shared memory
+    float *s_a = &shared_local[0];
+    float *s_b = &shared_local[blockDim.x * blockDim.y];
+
+    // Accumulate in temporary variable
     int tmp = 0;
-    for(int k = 0; k < nrowsB; k++){
-        tmp += mat_a[row_id * ncolsA + k] * mat_b[k * nrowsB + col_id];
+
+    // Sweep tile across matrix
+    for (int i = 0; i < ncolsA; i += blockDim.x) {
+      // Load in elements for this tile
+      s_a[threadIdx.y * blockDim.x + threadIdx.x] = mat_a[row_id * ncolsA + i + threadIdx.x];
+      s_b[threadIdx.y * blockDim.x + threadIdx.x] =
+          mat_b[i * ncolsB + threadIdx.y * ncolsB + col_id];
+
+      // Wait for both tiles to be loaded in before doing computation
+      __syncthreads();
+
+      // Do matrix multiplication on the small matrix
+      for (int j = 0; j < blockDim.x; j++) {
+        tmp +=
+            s_a[threadIdx.y * blockDim.x + j] * s_b[j * blockDim.x + threadIdx.x];
+      }
+
+      // Wait for all threads to finish using current tiles before loading in new
+      // ones
+      __syncthreads();
     }
-    result_mat[row_id * ncolsA + col_id] = tmp;
+    // Write back results
+    result_mat[row_id * nrowsA + col_id] = tmp;
   
 }
 /////////////////////////////////Serial version/////////////////////////////////////////////
@@ -91,38 +116,48 @@ CudaSafeCall(cudaMalloc((void**)&d_mat_out, mat_size_bytes));
 CudaSafeCall(cudaMalloc((void**)&d_mat_a,   mat_size_bytes));
 CudaSafeCall(cudaMalloc((void**)&d_mat_b,   mat_size_bytes));
 checkGPUMemory();
-cudaTick(&ck);
-//------ Step 2: Copy Memory to the device-------
-printf("Transfering data to the Device..\n");
-CudaSafeCall(cudaMemcpy(d_mat_a, h_mat_a, mat_size_bytes, cudaMemcpyHostToDevice));
-CudaSafeCall(cudaMemcpy(d_mat_b, h_mat_b, mat_size_bytes, cudaMemcpyHostToDevice));
-//------ Step 3: Prepare launch parameters-------
-printf("preparing launch parameters..\n");
-int block_size_x = 32;
-int block_size_y = 32;
-dim3 dimGrid = dim3((ncols + block_size_x - 1)/ block_size_x, (nrows + block_size_y - 1)/block_size_y, 1);//.... CONFIGURE THE GRID IN 2D NOW!
-std::cout << "dimGrid = " << dimGrid.x << " x " << dimGrid.y << std::endl;
-dim3 dimBlock = dim3(block_size_x, block_size_y, 1);//.... we have  alimit of 1024 threads per block!!!!!
-std::cout << "dimBlock = " << dimBlock.x << " x " << dimBlock.y << std::endl;
-//------ Step 4: Launch device kernel-------
-printf("Launch Device Kernel.\n");
-// YOUR KERNEL LAUNCH GOES HERE------------------------>>>>>>>>>
 
-for (int i = 0; i < noofmatrix; i++){
-  gpu_matrix_mul<<<dimGrid, dimBlock>>>(d_mat_out, d_mat_a, d_mat_b, nrowsA, ncolsA, nrowsB, ncolsB);
+
+int NSTREAMS = 8;
+cudaStream_t *streams = (cudaStream_t *) malloc(NSTREAMS * sizeof(cudaStream_t));
+for(int is =0; is < NSTREAMS; is++){
+  cudaStreamCreate(&(streams[is]));
 }
-CudaCheckError();
 
-//------ Step 5: Copy Memory back to the host-------
-printf("Transfering result data to the Host..\n");
-CudaSafeCall(cudaMemcpy(h_mat_out_gpu, d_mat_out, mat_size_bytes, cudaMemcpyDeviceToHost));
- //
+cudaTick(&ck);
+for (int i = 0; i < NSTREAMS; i++){
+  //------ Step 2: Copy Memory to the device-------
+  printf("Transfering data to the Device..\n");
+  CudaSafeCall(cudaMemcpy(d_mat_a+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_a+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice));
+  CudaSafeCall(cudaMemcpy(d_mat_b+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_b+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice));
+  //------ Step 3: Prepare launch parameters-------
+  printf("preparing launch parameters..\n");
+  int block_size_x = 32;
+  int block_size_y = 32;
+  int SHMEM_SIZE = block_size_x * block_size_y * 2 * sizeof(float);
+  dim3 dimGrid = dim3((ncols + block_size_x - 1)/ block_size_x, (nrows + block_size_y - 1)/block_size_y, 1);//.... CONFIGURE THE GRID IN 2D NOW!
+  std::cout << "dimGrid = " << dimGrid.x << " x " << dimGrid.y << std::endl;
+  dim3 dimBlock = dim3(block_size_x, block_size_y, 1);//.... we have  alimit of 1024 threads per block!!!!!
+  std::cout << "dimBlock = " << dimBlock.x << " x " << dimBlock.y << std::endl;
+  //------ Step 4: Launch device kernel-------
+  printf("Launch Device Kernel.\n");
+  // YOUR KERNEL LAUNCH GOES HERE------------------------>>>>>>>>>
+  for (int j = 0; j < noofmatrix/NSTREAMS; j++){
+    gpu_matrix_mul<<<dimGrid, dimBlock, SHMEM_SIZE>>>(d_mat_out+((j + i * noofmatrix/NSTREAMS) * nrows * ncols), d_mat_a+((j + i * noofmatrix/NSTREAMS) * nrows * ncols), d_mat_b+( (j + i * noofmatrix/NSTREAMS) * nrows * ncols), nrowsA, ncolsA, nrowsB, ncolsB);
+  }
+  CudaCheckError();
+
+  //------ Step 5: Copy Memory back to the host-------
+  printf("Transfering result data to the Host..\n");
+  CudaSafeCall(cudaMemcpy(h_mat_out_gpu+(i* (noofmatrix/NSTREAMS)* nrows * ncols), d_mat_out+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyDeviceToHost));
+  //
+}
 
 cudaTock(&ck, "gpu_matrix_mul");
 printf("CPU version...\n");
 cpuTick(&cpuck);
 for (int i = 0; i < noofmatrix; i++){
-  host_matrix_mul(h_mat_out_cpu+(i* nrows * ncols), h_mat_a+(i* nrows * ncols), h_mat_b+(i* nrows * ncols), nrowsA, ncolsA, nrowsB, ncolsB);//serial version to compare
+  host_matrix_mul(h_mat_out_cpu+(i * nrows * ncols), h_mat_a+(i* nrows * ncols), h_mat_b+(i* nrows * ncols), nrowsA, ncolsA, nrowsB, ncolsB);//serial version to compare
 }
 cpuTock(&cpuck, "host_matrix_mul");
 std::cout << "gpu is " << cpuck.elapsedMicroseconds/ck.elapsedMicroseconds << " times faster" << std::endl;

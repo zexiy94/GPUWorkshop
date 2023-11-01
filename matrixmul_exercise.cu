@@ -52,8 +52,9 @@ cudaClock ck;
 float *d_mat_out, *d_mat_a, *d_mat_b;
 float *h_mat_out_cpu, *h_mat_out_gpu, *h_mat_a, *h_mat_b;
 printf("\nStarting program execution..\n\n");
-int nrows = 1024;
-int ncols = 1024;
+int noofmatrix = 32;
+int nrows = 256;
+int ncols = 256;
 std::cout << "rows " << nrows << " x cols " << ncols<<std::endl;
 
 printf("Allocating and creating problem data..\n");
@@ -79,20 +80,27 @@ int ncolsB = ncols;
  ////
  //------ Step 1: Allocate the memory-------
  printf("Allocating Device Memory..\n");
- // The two input matricies for gpu are d_mat_a and d_mat_b.
- // The output matrix for gpu is d_mat_out
+ // The two input matrix arrays for gpu are d_mat_a and d_mat_b.
+ // The output matrix array for gpu is d_mat_out
+ // Also remember to allocate your streams!
 
 
 
 checkGPUMemory();
-//------ Step 2: Copy Memory to the device-------
-// The two input matricies on the cpu are h_mat_a and h_mat_b
-printf("Transfering data to the Device..\n");
 
 
 
 //------ Step 3: Prepare launch parameters-------
 printf("preparing launch parameters..\n");
+
+
+
+cudaTick(&ck);
+//------ Step 2: Copy Memory to the device -------
+// TODO: Add stream compatibility
+// The two input matrix arrays on the cpu are h_mat_a and h_mat_b
+printf("Transfering data to the Device..\n");
+
 int block_size_x = ; //TODO: FILL IN
 int block_size_y = ; //TODO: FILL IN
 dim3 dimGrid = ; // TODO: FILL IN
@@ -103,10 +111,8 @@ std::cout << "dimBlock = " << dimBlock.x << " x " << dimBlock.y << std::endl;
 
 //------ Step 4: Launch device kernel-------
 printf("Launch Device Kernel.\n");
-cudaTick(&ck);
 // YOUR KERNEL LAUNCH GOES HERE------------------------>>>>>>>>>
 
-cudaTock(&ck, "kernel_matrix_mul");
 CudaCheckError();
 
 //------ Step 5: Copy Memory back to the host-------
@@ -115,6 +121,8 @@ printf("Transfering result data to the Host..\n");
 
 
  //
+
+cudaTock(&ck, "gpu_matrix_mul");
 printf("CPU version...\n");
 cpuTick(&cpuck);
 host_matrix_mul(h_mat_out_cpu, h_mat_a, h_mat_b, nrowsA, ncolsA, nrowsB, ncolsB);//serial version to compare
