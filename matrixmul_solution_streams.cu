@@ -1,4 +1,4 @@
-// // nvcc -run matrixmul_solution_streams.cu cuda_helper.cu
+// // nvcc -arch=sm_37 -run matrixmul_solution_streams.cu cuda_helper.cu
 #include "cuda_runtime.h"
 #include "chTimer.h"
 #include "cuda_helper.h"
@@ -118,18 +118,19 @@ CudaSafeCall(cudaMalloc((void**)&d_mat_b,   mat_size_bytes));
 checkGPUMemory();
 
 
-int NSTREAMS = 8;
+int NSTREAMS = 4;
 cudaStream_t *streams = (cudaStream_t *) malloc(NSTREAMS * sizeof(cudaStream_t));
 for(int is =0; is < NSTREAMS; is++){
   cudaStreamCreate(&(streams[is]));
 }
 
 cudaTick(&ck);
+#pragma omp parallel for
 for (int i = 0; i < NSTREAMS; i++){
   //------ Step 2: Copy Memory to the device-------
   printf("Transfering data to the Device..\n");
-  CudaSafeCall(cudaMemcpy(d_mat_a+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_a+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice));
-  CudaSafeCall(cudaMemcpy(d_mat_b+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_b+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice));
+  CudaSafeCall(cudaMemcpyAsync(d_mat_a+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_a+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice,streams[i]));
+  CudaSafeCall(cudaMemcpyAsync(d_mat_b+(i * (noofmatrix/NSTREAMS)* nrows * ncols), h_mat_b+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyHostToDevice,streams[i]));
   //------ Step 3: Prepare launch parameters-------
   printf("preparing launch parameters..\n");
   int block_size_x = 32;
@@ -149,7 +150,7 @@ for (int i = 0; i < NSTREAMS; i++){
 
   //------ Step 5: Copy Memory back to the host-------
   printf("Transfering result data to the Host..\n");
-  CudaSafeCall(cudaMemcpy(h_mat_out_gpu+(i* (noofmatrix/NSTREAMS)* nrows * ncols), d_mat_out+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyDeviceToHost));
+  CudaSafeCall(cudaMemcpyAsync(h_mat_out_gpu+(i* (noofmatrix/NSTREAMS)* nrows * ncols), d_mat_out+(i* (noofmatrix/NSTREAMS)* nrows * ncols), mat_size_bytes/NSTREAMS, cudaMemcpyDeviceToHost,streams[i]));
   //
 }
 
@@ -163,7 +164,7 @@ cpuTock(&cpuck, "host_matrix_mul");
 std::cout << "gpu is " << cpuck.elapsedMicroseconds/ck.elapsedMicroseconds << " times faster" << std::endl;
 
 printf("Checking solutions..\n");
-check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, nrows * ncols);
+check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, noofmatrix * nrows * ncols);
 //
 
 // -----------Step 6: Free the memory --------------

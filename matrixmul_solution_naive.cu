@@ -1,4 +1,4 @@
-// // nvcc -run matrixmul_solution_naive.cu cuda_helper.cu
+// // nvcc -run -arch=sm_37  matrixmul_solution_naive.cu cuda_helper.cu
 #include "cuda_runtime.h"
 #include "chTimer.h"
 #include "cuda_helper.h"
@@ -10,14 +10,14 @@ __global__ void gpu_matrix_mul(float *result_mat,
                                float *mat_b,
                                int nrowsA, int nrowsB, int ncolsA, int ncolsB)
 {
-    int col_id = blockIdx.x * blockDim.x + threadIdx.x;
-    int row_id = blockIdx.y * blockDim.y + threadIdx.y;
+    int row_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int col_id = blockIdx.y * blockDim.y + threadIdx.y;
     //printf(" %d %d, ", gidx, 1);
     int tmp = 0;
     for(int k = 0; k < nrowsB; k++){
-        tmp += mat_a[row_id * ncolsA + k] * mat_b[k * nrowsB + col_id];
+        tmp += (mat_a[row_id * ncolsA + k] * mat_b[k * nrowsB + col_id]);
     }
-    result_mat[row_id * ncolsA + col_id] = tmp;
+    result_mat[row_id * ncolsB + col_id] = tmp;
   
 }
 /////////////////////////////////Serial version/////////////////////////////////////////////
@@ -94,8 +94,10 @@ checkGPUMemory();
 cudaTick(&ck);
 //------ Step 2: Copy Memory to the device-------
 printf("Transfering data to the Device..\n");
-CudaSafeCall(cudaMemcpy(d_mat_a, h_mat_a, mat_size_bytes, cudaMemcpyHostToDevice));
-CudaSafeCall(cudaMemcpy(d_mat_b, h_mat_b, mat_size_bytes, cudaMemcpyHostToDevice));
+for (int i = 0; i < noofmatrix; i++){
+  CudaSafeCall(cudaMemcpy(d_mat_a+(i* nrows * ncols), h_mat_a+(i* nrows * ncols), mat_size_bytes/noofmatrix, cudaMemcpyHostToDevice));
+  CudaSafeCall(cudaMemcpy(d_mat_b+(i* nrows * ncols), h_mat_b+(i* nrows * ncols), mat_size_bytes/noofmatrix, cudaMemcpyHostToDevice));
+}
 //------ Step 3: Prepare launch parameters-------
 printf("preparing launch parameters..\n");
 int block_size_x = 32;
@@ -109,13 +111,15 @@ printf("Launch Device Kernel.\n");
 // YOUR KERNEL LAUNCH GOES HERE------------------------>>>>>>>>>
 
 for (int i = 0; i < noofmatrix; i++){
-  gpu_matrix_mul<<<dimGrid, dimBlock>>>(d_mat_out, d_mat_a, d_mat_b, nrowsA, ncolsA, nrowsB, ncolsB);
+  gpu_matrix_mul<<<dimGrid, dimBlock>>>(d_mat_out+(i* nrows * ncols), d_mat_a+(i* nrows * ncols), d_mat_b+(i* nrows * ncols), nrowsA, ncolsA, nrowsB, ncolsB);
 }
 CudaCheckError();
 
 //------ Step 5: Copy Memory back to the host-------
 printf("Transfering result data to the Host..\n");
-CudaSafeCall(cudaMemcpy(h_mat_out_gpu, d_mat_out, mat_size_bytes, cudaMemcpyDeviceToHost));
+for (int i = 0; i < noofmatrix; i++){
+  CudaSafeCall(cudaMemcpy(h_mat_out_gpu+(i*nrows*ncols), d_mat_out+(i*nrows*ncols), mat_size_bytes/noofmatrix, cudaMemcpyDeviceToHost));
+}
  //
 
 cudaTock(&ck, "gpu_matrix_mul");
@@ -128,7 +132,7 @@ cpuTock(&cpuck, "host_matrix_mul");
 std::cout << "gpu is " << cpuck.elapsedMicroseconds/ck.elapsedMicroseconds << " times faster" << std::endl;
 
 printf("Checking solutions..\n");
-check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, nrows * ncols);
+check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, noofmatrix * nrows * ncols);
 //
 
 // -----------Step 6: Free the memory --------------

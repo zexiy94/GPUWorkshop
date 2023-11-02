@@ -1,4 +1,4 @@
-// // nvcc -run matrixmul_exercise.cu cuda_helper.cu
+// // nvcc -run -arch=sm_37 matrixmul_exercise.cu cuda_helper.cu
 #include "cuda_runtime.h"
 #include "chTimer.h"
 #include "cuda_helper.h"
@@ -130,7 +130,7 @@ cpuTock(&cpuck, "host_matrix_mul");
 std::cout << "gpu is " << cpuck.elapsedMicroseconds/ck.elapsedMicroseconds << " times faster" << std::endl;
 
 printf("Checking solutions..\n");
-check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, nrows * ncols);
+check_equal_float_vec(h_mat_out_gpu, h_mat_out_cpu, noofmatrix * nrows * ncols);
 //
 
 // -----------Step 6: Free the memory --------------
